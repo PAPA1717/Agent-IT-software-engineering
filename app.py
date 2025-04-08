@@ -31,19 +31,29 @@ if uploaded_file:
             st.error("Uploaded file must contain 'Date' and 'Revenue' columns.")
             st.stop()
 
-        # Prepare data for Prophet
+        # Scenario Selection
+        scenario = st.selectbox("Choose Forecast Scenario", ["Base Case", "Best Case", "Worst Case"])
+        growth_adjustment = {
+            "Base Case": 0.00,
+            "Best Case": 0.10,
+            "Worst Case": -0.10
+        }[scenario]
+
+        # Prepare data for Prophet with scenario adjustment
         df_prophet = df.rename(columns={"Date": "ds", "Revenue": "y"})
         df_prophet['ds'] = pd.to_datetime(df_prophet['ds'])
+        df_prophet['y_adj'] = df_prophet['y'] * (1 + growth_adjustment)
+        df_prophet_adj = df_prophet[['ds', 'y_adj']].rename(columns={'y_adj': 'y'})
 
         # Forecasting with Prophet
         model = Prophet()
-        model.fit(df_prophet)
+        model.fit(df_prophet_adj)
 
         future = model.make_future_dataframe(periods=12, freq='M')
         forecast = model.predict(future)
 
         # Plot forecast
-        st.write("### Forecast Plot")
+        st.write(f"### Forecast Plot - {scenario}")
         fig1 = model.plot(forecast)
         st.pyplot(fig1)
 
