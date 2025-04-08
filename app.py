@@ -31,34 +31,46 @@ if uploaded_file:
             st.error("Uploaded file must contain 'Date' and 'Revenue' columns.")
             st.stop()
 
-        # Scenario Selection
-        scenario = st.selectbox("Choose Forecast Scenario", ["Base Case", "Best Case", "Worst Case"])
-        growth_adjustment = {
+        df['Date'] = pd.to_datetime(df['Date'])
+        df = df.rename(columns={"Date": "ds", "Revenue": "y"})
+
+        scenarios = {
             "Base Case": 0.00,
             "Best Case": 0.10,
             "Worst Case": -0.10
-        }[scenario]
+        }
 
-        # Prepare data for Prophet with scenario adjustment
-        df_prophet = df.rename(columns={"Date": "ds", "Revenue": "y"})
-        df_prophet['ds'] = pd.to_datetime(df_prophet['ds'])
-        df_prophet['y_adj'] = df_prophet['y'] * (1 + growth_adjustment)
-        df_prophet_adj = df_prophet[['ds', 'y_adj']].rename(columns={'y_adj': 'y'})
+        forecasts = {}
 
-        # Forecasting with Prophet
-        model = Prophet()
-        model.fit(df_prophet_adj)
+        for name, adjustment in scenarios.items():
+            df_adj = df.copy()
+            df_adj['y'] = df_adj['y'] * (1 + adjustment)
 
-        future = model.make_future_dataframe(periods=12, freq='M')
-        forecast = model.predict(future)
+            model = Prophet()
+            model.fit(df_adj)
 
-        # Plot forecast
-        st.write(f"### Forecast Plot - {scenario}")
-        fig1 = model.plot(forecast)
-        st.pyplot(fig1)
+            future = model.make_future_dataframe(periods=12, freq='M')
+            forecast = model.predict(future)
+            forecasts[name] = forecast
 
-        # Show forecast data
-        st.write("### Forecast Data", forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(12))
+        # Plotting all scenarios
+        st.write("### Scenario Comparison Forecast Plot")
+        plt.figure(figsize=(10, 6))
+
+        for name, forecast in forecasts.items():
+            plt.plot(forecast['ds'], forecast['yhat'], label=name)
+
+        plt.xlabel("Date")
+        plt.ylabel("Forecasted Revenue")
+        plt.title("Revenue Forecast - Multi-Scenario")
+        plt.legend()
+        plt.grid(True)
+        st.pyplot(plt.gcf())
+
+        # Show forecast data from selected scenario
+        scenario = st.selectbox("Select Scenario for Details & Commentary", list(scenarios.keys()))
+        forecast = forecasts[scenario]
+        st.write(f"### Forecast Data - {scenario}", forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(12))
 
         # AI Commentary
         st.subheader("🤖 AI-Generated Forecast Commentary")
