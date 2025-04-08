@@ -41,16 +41,24 @@ if uploaded_file:
         }
 
         forecasts = {}
+        last_date = df['ds'].max()
 
         for name, adjustment in scenarios.items():
             df_adj = df.copy()
-            df_adj['y'] = df_adj['y'] * (1 + adjustment)
+            df_adj['y'] = df_adj['y']  # no change in history
 
             model = Prophet()
             model.fit(df_adj)
 
             future = model.make_future_dataframe(periods=12, freq='M')
             forecast = model.predict(future)
+
+            # Apply adjustment only to future
+            future_mask = forecast['ds'] > last_date
+            forecast.loc[future_mask, 'yhat'] *= (1 + adjustment)
+            forecast.loc[future_mask, 'yhat_lower'] *= (1 + adjustment)
+            forecast.loc[future_mask, 'yhat_upper'] *= (1 + adjustment)
+
             forecasts[name] = forecast
 
         # Plotting all scenarios
@@ -60,6 +68,7 @@ if uploaded_file:
         for name, forecast in forecasts.items():
             plt.plot(forecast['ds'], forecast['yhat'], label=name)
 
+        plt.axvline(x=last_date, color='gray', linestyle='--', label='Forecast Start')
         plt.xlabel("Date")
         plt.ylabel("Forecasted Revenue")
         plt.title("Revenue Forecast - Multi-Scenario")
@@ -70,7 +79,7 @@ if uploaded_file:
         # Show forecast data from selected scenario
         scenario = st.selectbox("Select Scenario for Details & Commentary", list(scenarios.keys()))
         forecast = forecasts[scenario]
-        st.write(f"### Forecast Data - {scenario}", forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(12))
+        st.write(f"### Forecast Data - {scenario}", forecast[forecast['ds'] > last_date][['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(12))
 
         # AI Commentary
         st.subheader("🤖 AI-Generated Forecast Commentary")
@@ -83,7 +92,7 @@ if uploaded_file:
         - CFO-ready summary using the Pyramid Principle.
         - Actionable recommendations to improve revenue forecasting.
         Here is the forecast data in JSON:
-        {forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(24).to_json(orient='records')}
+        {forecast[forecast['ds'] > last_date][['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_json(orient='records')}
         """
 
         response = client.chat.completions.create(
