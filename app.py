@@ -1,12 +1,10 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from prophet import Prophet
-from groq import Groq
-from dotenv import load_dotenv
 import os
-import io
+from dotenv import load_dotenv
+from groq import Groq
 
 # Load API key securely
 load_dotenv()
@@ -15,126 +13,66 @@ if not GROQ_API_KEY:
     st.error("\U0001F6A8 API Key is missing! Set it in Streamlit Secrets or a .env file.")
     st.stop()
 
-# Streamlit UI
-st.set_page_config(page_title="AI Forecasting Agent", page_icon="📈", layout="wide")
-st.title("📈 Revenue Forecasting using Prophet")
+# Streamlit UI Setup
+st.set_page_config(page_title="Revenue Forecasting Agent", page_icon="📊", layout="wide")
+st.title("📊 AI Revenue Forecasting with Prophet")
 
-# File uploader
-uploaded_file = st.file_uploader("Upload your Excel file with 'Date' and 'Revenue' columns", type=["xlsx"])
+# File Upload
+uploaded_file = st.file_uploader("Upload your Excel file with Date and Revenue columns", type=["xlsx"])
 
 if uploaded_file:
-    try:
-        df = pd.read_excel(uploaded_file)
-        st.write("### Uploaded Data Preview", df.head())
+    df = pd.read_excel(uploaded_file)
+    
+    if 'Date' not in df.columns or 'Revenue' not in df.columns:
+        st.error("The file must contain 'Date' and 'Revenue' columns.")
+    else:
+        # Prepare data for Prophet
+        df = df[['Date', 'Revenue']].rename(columns={'Date': 'ds', 'Revenue': 'y'})
+        df['ds'] = pd.to_datetime(df['ds'])
 
-        # Check required columns
-        if not {'Date', 'Revenue'}.issubset(df.columns):
-            st.error("Uploaded file must contain 'Date' and 'Revenue' columns.")
-            st.stop()
+        # Fit Prophet model
+        model = Prophet()
+        model.fit(df)
 
-        df['Date'] = pd.to_datetime(df['Date'])
-        df = df.rename(columns={"Date": "ds", "Revenue": "y"})
+        # Forecasting future periods
+        future = model.make_future_dataframe(periods=30)
+        forecast = model.predict(future)
 
-        scenarios = {
-            "Base Case": 0.00,
-            "Best Case": 0.10,
-            "Worst Case": -0.10
-        }
+        # Plot Forecast
+        fig1 = model.plot(forecast)
+        st.subheader("🔢 Forecast Plot")
+        st.pyplot(fig1)
 
-        forecasts = {}
-        last_date = df['ds'].max()
+        # Plot forecast components
+        fig2 = model.plot_components(forecast)
+        st.subheader("📊 Forecast Components")
+        st.pyplot(fig2)
 
-        for name, adjustment in scenarios.items():
-            df_adj = df.copy()
-            model = Prophet()
-            model.fit(df_adj)
+        # AI-generated insights using Groq
+        st.subheader("🧠 AI-Generated Forecast Insights")
+        client = Groq(api_key=GROQ_API_KEY)
 
-            future = model.make_future_dataframe(periods=12, freq='M')
-            forecast = model.predict(future)
+        prompt = f"""
+        You are an expert FP&A analyst.
+        Analyze the revenue forecast below. Highlight trends, seasonality, anomalies,
+        and generate a short executive summary for the CFO.
 
-            # Apply adjustment only to future
-            future_mask = forecast['ds'] > last_date
-            forecast.loc[future_mask, 'yhat'] *= (1 + adjustment)
-            forecast.loc[future_mask, 'yhat_lower'] *= (1 + adjustment)
-            forecast.loc[future_mask, 'yhat_upper'] *= (1 + adjustment)
+        Forecast data:
+        {forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(30).to_json(orient='records')}
+        """
 
-            forecasts[name] = forecast
-
-        # Plotting all scenarios
-        st.write("### Scenario Comparison Forecast Plot")
-        plt.figure(figsize=(10, 6))
-
-        # Fill past data background
-        plt.axvspan(df['ds'].min(), last_date, color='lightgray', alpha=0.4, label='Historical Period')
-
-        for name, forecast in forecasts.items():
-            plt.plot(forecast['ds'], forecast['yhat'], label=name)
-
-        plt.axvline(x=last_date, color='gray', linestyle='--', label='Forecast Start')
-        plt.xlabel("Date")
-        plt.ylabel("Forecasted Revenue")
-        plt.title("Revenue Forecast - Multi-Scenario")
-        plt.legend()
-        plt.grid(True)
-        st.pyplot(plt.gcf())
-
-        # Show forecast data from selected scenario
-        scenario = st.selectbox("Select Scenario for Details & Commentary", list(scenarios.keys()))
-        forecast = forecasts[scenario]
-        forecast_future = forecast[forecast['ds'] > last_date][['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-        st.write(f"### Forecast Data - {scenario}", forecast_future.tail(12))
-
-        # Download button for forecast data
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            forecast_future.to_excel(writer, index=False, sheet_name='Forecast')
-        st.download_button(
-            label="📥 Download Forecast as Excel",
-            data=buffer,
-            file_name=f"forecast_{scenario.lower().replace(' ', '_')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are an expert financial forecaster and FP&A advisor."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama3-8b-8192",
         )
 
-        # AI Commentary (only for base case)
-        if scenario == "Base Case":
-            st.subheader("🤖 AI-Generated Forecast Commentary")
-            client = Groq(api_key=GROQ_API_KEY)
+        ai_commentary = response.choices[0].message.content
 
-            # Reduce token usage by limiting to 12 rows history and 12 future
-            historical_json = df.tail(12).to_json(orient='records')
-            forecast_json = forecast_future.head(12).to_json(orient='records')
-
-            prompt = f"""
-            You are the Head of FP&A at an IT-software engineering company. Analyze the following historical data and base case trend from Prophet and provide:
-            - Key trends and seasonal patterns in the historical performance.
-            - Risks or anomalies in revenue development.
-            - CFO-ready summary using the Pyramid Principle.
-            - Actionable recommendations to improve revenue forecasting.
-
-            Historical data:
-            {historical_json}
-
-            Forecast trend:
-            {forecast_json}
-            """
-
-            try:
-                response = client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": "You are a financial planning and analysis (FP&A) expert, specializing in SaaS companies."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    model="llama3-8b-8192",
-                )
-                ai_commentary = response.choices[0].message.content
-
-                st.markdown('<div class="analysis-container">', unsafe_allow_html=True)
-                st.subheader("📖 AI-Generated Commentary")
-                st.write(ai_commentary)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            except Exception as e:
-                st.error(f"❌ AI commentary failed: {e}")
-
-    except Exception as e:
-        st.error(f"❌ Error processing file: {e}")
+        st.markdown('<div class="analysis-container">', unsafe_allow_html=True)
+        st.write(ai_commentary)
+        st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.info("Please upload an Excel file with 'Date' and 'Revenue' columns to begin.")
