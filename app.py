@@ -100,6 +100,10 @@ if uploaded_file:
             st.subheader("🤖 AI-Generated Forecast Commentary")
             client = Groq(api_key=GROQ_API_KEY)
 
+            # Reduce token usage by limiting to 12 rows history and 12 future
+            historical_json = df.tail(12).to_json(orient='records')
+            forecast_json = forecast_future.head(12).to_json(orient='records')
+
             prompt = f"""
             You are the Head of FP&A at an IT-software engineering company. Analyze the following historical data and base case trend from Prophet and provide:
             - Key trends and seasonal patterns in the historical performance.
@@ -108,26 +112,29 @@ if uploaded_file:
             - Actionable recommendations to improve revenue forecasting.
 
             Historical data:
-            {df.to_json(orient='records')}
+            {historical_json}
 
             Forecast trend:
-            {forecast_future.to_json(orient='records')}
+            {forecast_json}
             """
 
-            response = client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": "You are a financial planning and analysis (FP&A) expert, specializing in SaaS companies."},
-                    {"role": "user", "content": prompt}
-                ],
-                model="llama3-8b-8192",
-            )
+            try:
+                response = client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "You are a financial planning and analysis (FP&A) expert, specializing in SaaS companies."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama3-8b-8192",
+                )
+                ai_commentary = response.choices[0].message.content
 
-            ai_commentary = response.choices[0].message.content
+                st.markdown('<div class="analysis-container">', unsafe_allow_html=True)
+                st.subheader("📖 AI-Generated Commentary")
+                st.write(ai_commentary)
+                st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown('<div class="analysis-container">', unsafe_allow_html=True)
-            st.subheader("📖 AI-Generated Commentary")
-            st.write(ai_commentary)
-            st.markdown('</div>', unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"❌ AI commentary failed: {e}")
 
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
