@@ -56,6 +56,18 @@ if uploaded_file:
         # **📌 AI Commentary**
         st.subheader("🤖 AI-Generated Forecast Commentary")
 
+        # Tooltip for Pyramid Principle
+        with st.expander("❓ What is the Pyramid Principle?"):
+            st.markdown("""
+            **The Pyramid Principle** is a communication framework that helps convey ideas clearly and logically:
+            
+            - **Top**: Start with the key message or conclusion.
+            - **Middle**: Follow with 2–4 supporting arguments.
+            - **Bottom**: End with detailed data and evidence.
+            
+            This structure ensures clarity and makes your message easy to follow — especially useful for CFOs and senior decision-makers.
+            """)
+
         client = Groq(api_key=GROQ_API_KEY)
 
         forecast_summary = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(12).to_json(orient="records")
