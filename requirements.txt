@@ -2,8 +2,8 @@ streamlit
 pandas
 numpy
 matplotlib
-openpyxl
-python-dotenv
 prophet
+openai
 groq
-xlsxwriter
+python-dotenv
+openpyxl
